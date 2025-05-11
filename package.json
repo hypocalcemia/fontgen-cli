@@ -7,6 +7,9 @@
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1"
   },
+  "bin": {
+    "fontgen-cli": "./index.js"
+  },
   "repository": {
     "type": "git",
     "url": "git+https://github.com/hypokalemia/fontgen-cli.git"
@@ -26,11 +29,12 @@
   "author": "Hypocalemia",
   "license": "GPL-3.0",
   "bugs": {
-    "url": "https://github.com/hypocalcemia/fontgen-cli/issues"
+    "url": "https://github.com/hypokalcemia/fontgen-cli/issues"
   },
-  "homepage": "https://github.com/hypocalcemia/fontgen-cli#readme",
+  "homepage": "https://github.com/hypokalcemia/fontgen-cli#readme",
   "dependencies": {
     "chalk": "^5.4.1",
+    "fontgen-cli": "^1.0.0",
     "fs-extra": "^11.3.0",
     "glob": "^11.0.2",
     "inquirer": "^12.6.1",
