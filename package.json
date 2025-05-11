@@ -1,0 +1,31 @@
+{
+  "name": "fontgen-cli",
+  "version": "1.0.0",
+  "description": "An awesome CLI (Terminal) Tool made using NodeJS and PNPM as the package manager to manage fonts in TailwindCSS! Easily add local fonts by using a specified folder and input into the @theme variable in Tailwind css file.",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/hypokalemia/fontgen-cli.git"
+  },
+  "keywords": [
+    "Fonts",
+    "Generator",
+    "CLI",
+    "Terminal",
+    "Cli",
+    "Tool",
+    "TailwindCSS",
+    "Font-Magician",
+    "Tailwind",
+    "Theme"
+  ],
+  "author": "Hypocalemia",
+  "license": "GPL-3.0",
+  "bugs": {
+    "url": "https://github.com/hypocalcemia/fontgen-cli/issues"
+  },
+  "homepage": "https://github.com/hypocalcemia/fontgen-cli#readme"
+}
