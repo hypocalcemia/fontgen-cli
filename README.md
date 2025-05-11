@@ -1,5 +1,3 @@
-Here’s a set of sections to make your **README.md** stand out and look professional. These sections will help improve the overall structure and user experience, while providing the necessary details in an organized way.
-
 ### 1. **Introduction**
 
 Provide a short overview of your tool and what it does. This section should grab attention and describe the value of your project.
