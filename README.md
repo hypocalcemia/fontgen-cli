@@ -295,10 +295,3 @@ Ensure you've specified the correct path for each font style in your fonts folde
 ### License
 
 This project is licensed under the **GNU General Public License v3.0**. See the [LICENSE](./LICENSE) file for more information.
-
-```
-
----
-
-These sections provide clarity on how to use, contribute, and troubleshoot the project, while offering a professional, user-friendly, and well-structured README. Let me know if you need further modifications!
-```
