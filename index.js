@@ -128,8 +128,8 @@ async function main() {
       console.log(chalk.green(`✔ [${familyName}] styles: ${styles.join(', ')}`));
 
       styles.forEach(style => {
-        const faceFamily = `${familyName}-${style}`;
-        themeLines.push(`  --font-${faceFamily.toLowerCase()}: "${faceFamily}", sans-serif;`);
+        const faceFamily = `${familyName}-${style}`.toLowerCase().replace(/_/g, '-');
+        themeLines.push(`  --font-${faceFamily}: "${faceFamily}", sans-serif;`);
       });
 
       styles.forEach(style => {
@@ -138,7 +138,7 @@ async function main() {
         const isVar = /variable/i.test(style);
         const weight = /bold/i.test(style) ? '700' : '400';
         const fontStyle = /italic/i.test(style) ? 'italic' : 'normal';
-        const faceFamily = `${familyName}-${style}`;
+        const faceFamily = `${familyName}-${style}`.toLowerCase().replace(/_/g, '-');
 
         if (isVar) {
           faceLines.push(
@@ -195,11 +195,20 @@ async function main() {
         const url = relativeUrl(cssFilePath, fp);
         const weight = /bold/i.test(style) ? '700' : '400';
         const fontStyle = /italic/i.test(style) ? 'italic' : 'normal';
-        const faceFamily = `${familyName}-${style}`;
+        const faceFamily = `${familyName}-${style}`.toLowerCase().replace(/_/g, '-');
 
+        // Generate @font-face
         css += `@font-face {\n`;
         css += `  font-family: "${faceFamily}";\n`;
         css += `  src: url("${url}") format("truetype");\n`;
+        css += `  font-weight: ${weight};\n`;
+        css += `  font-style: ${fontStyle};\n`;
+        css += `}\n\n`;
+
+        // Generate CSS class
+        const className = `font-${faceFamily}`;
+        css += `.${className} {\n`;
+        css += `  font-family: "${faceFamily}", sans-serif;\n`;
         css += `  font-weight: ${weight};\n`;
         css += `  font-style: ${fontStyle};\n`;
         css += `}\n\n`;
