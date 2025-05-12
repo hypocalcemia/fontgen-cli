@@ -34,7 +34,7 @@
   "homepage": "https://github.com/hypokalcemia/fontgen-cli#readme",
   "dependencies": {
     "chalk": "^5.4.1",
-    "fontgen-cli": "^1.0.0",
+    "fontgen-cli": "link:",
     "fs-extra": "^11.3.0",
     "glob": "^11.0.2",
     "inquirer": "^12.6.1",
