@@ -79,91 +79,136 @@ function cleanCss(css, familyNames) {
 }
 
 async function main() {
-  const cleanMode = process.argv.includes('--clean');
+  const { cssType } = await prompt({
+    name: 'cssType',
+    type: 'list',
+    message: 'Choose the type of CSS to generate:',
+    choices: ['TailwindCSS', 'Standard CSS']
+  });
+
   const fontsRoot = await askFontsRoot();
   const familyDirs = await chooseFamilies(fontsRoot);
   const familyNames = familyDirs.map(fd => path.basename(fd));
-  const twPath = await askTailwindFile();
-  let css = await fs.readFile(twPath, 'utf-8');
 
-  if (cleanMode) {
-    // CLEAN: strip out existing blocks for selected families
-    css = cleanCss(css, familyNames);
-    await fs.writeFile(twPath, css, 'utf-8');
-    console.log(chalk.green(`🎉 Removed fonts for: ${familyNames.join(', ')}`));
-    process.exit(0);
-  }
+  if (cssType === 'TailwindCSS') {
+    const twPath = await askTailwindFile();
+    let css = await fs.readFile(twPath, 'utf-8');
 
-  // ADD MODE:
-
-  // Remove old global blocks
-  css = css
-    .replace(/@theme\s*\{[\s\S]*?\}/g, '')
-    .replace(/\/\* Custom @font-face rules \*\/[\s\S]*/g, '');
-
-  const themeLines = ['@theme {'];
-  const faceLines = ['/* Custom @font-face rules */'];
-
-  for (const familyDir of familyDirs) {
-    const familyName = path.basename(familyDir);
-    const ttfPaths = globSync('**/*.ttf', { cwd: familyDir, absolute: true });
-    if (!ttfPaths.length) {
-      console.warn(chalk.yellow(`⚠ No .ttf found under ${familyName}`));
-      continue;
+    const cleanMode = process.argv.includes('--clean');
+    if (cleanMode) {
+      css = cleanCss(css, familyNames);
+      await fs.writeFile(twPath, css, 'utf-8');
+      console.log(chalk.green(`🎉 Removed fonts for: ${familyNames.join(', ')}`));
+      process.exit(0);
     }
-    // Map style → path
-    const styleToPath = {};
-    ttfPaths.forEach(fp => {
-      const base = path.basename(fp, '.ttf');
-      const [_, ...rest] = base.split('-');
-      const style = rest.join('-');
-      if (style) styleToPath[style] = fp;
-    });
-    const styles = Object.keys(styleToPath);
-    console.log(chalk.green(`✔ [${familyName}] styles: ${styles.join(', ')}`));
 
-    // @theme vars
-    styles.forEach(style => {
-      const faceFamily = `${familyName}-${style}`;
-      themeLines.push(`  --font-${faceFamily.toLowerCase()}: "${faceFamily}", sans-serif;`);
-    });
+    // ADD MODE:
+    css = css
+      .replace(/@theme\s*\{[\s\S]*?\}/g, '')
+      .replace(/\/\* Custom @font-face rules \*\/[\s\S]*/g, '');
 
-    // @font-face rules
-    styles.forEach(style => {
-      const fp = styleToPath[style];
-      const url = relativeUrl(twPath, fp);
-      const isVar = /variable/i.test(style);
-      const weight = /bold/i.test(style) ? '700' : '400';
-      const fontStyle = /italic/i.test(style) ? 'italic' : 'normal';
-      const faceFamily = `${familyName}-${style}`;
+    const themeLines = ['@theme {'];
+    const faceLines = ['/* Custom @font-face rules */'];
 
-      if (isVar) {
-        faceLines.push(
-          `@font-face {`,
-          `  font-family: "${faceFamily}";`,
-          `  src: url("${url}") format("truetype");`,
-          `  font-weight: 100 900;`,
-          `  font-style: normal;`,
-          `  font-variation-settings: "wght" 400;`,
-          `}`, ''
-        );
-      } else {
-        faceLines.push(
-          `@font-face {`,
-          `  font-family: "${faceFamily}";`,
-          `  src: url("${url}") format("truetype");`,
-          `  font-weight: ${weight};`,
-          `  font-style: ${fontStyle};`,
-          `}`, ''
-        );
+    for (const familyDir of familyDirs) {
+      const familyName = path.basename(familyDir);
+      const ttfPaths = globSync('**/*.ttf', { cwd: familyDir, absolute: true });
+      if (!ttfPaths.length) {
+        console.warn(chalk.yellow(`⚠ No .ttf found under ${familyName}`));
+        continue;
       }
-    });
-  }
+      const styleToPath = {};
+      ttfPaths.forEach(fp => {
+        const base = path.basename(fp, '.ttf');
+        const [_, ...rest] = base.split('-');
+        const style = rest.join('-');
+        if (style) styleToPath[style] = fp;
+      });
+      const styles = Object.keys(styleToPath);
+      console.log(chalk.green(`✔ [${familyName}] styles: ${styles.join(', ')}`));
 
-  themeLines.push('}', '');
-  css += '\n' + themeLines.join('\n') + '\n' + faceLines.join('\n');
-  await fs.writeFile(twPath, css, 'utf-8');
-  console.log(chalk.green('\n🎉 Font generation completed successfully!'));
+      styles.forEach(style => {
+        const faceFamily = `${familyName}-${style}`;
+        themeLines.push(`  --font-${faceFamily.toLowerCase()}: "${faceFamily}", sans-serif;`);
+      });
+
+      styles.forEach(style => {
+        const fp = styleToPath[style];
+        const url = relativeUrl(twPath, fp);
+        const isVar = /variable/i.test(style);
+        const weight = /bold/i.test(style) ? '700' : '400';
+        const fontStyle = /italic/i.test(style) ? 'italic' : 'normal';
+        const faceFamily = `${familyName}-${style}`;
+
+        if (isVar) {
+          faceLines.push(
+            `@font-face {`,
+            `  font-family: "${faceFamily}";`,
+            `  src: url("${url}") format("truetype");`,
+            `  font-weight: 100 900;`,
+            `  font-style: normal;`,
+            `  font-variation-settings: "wght" 400;`,
+            `}`, ''
+          );
+        } else {
+          faceLines.push(
+            `@font-face {`,
+            `  font-family: "${faceFamily}";`,
+            `  src: url("${url}") format("truetype");`,
+            `  font-weight: ${weight};`,
+            `  font-style: ${fontStyle};`,
+            `}`, ''
+          );
+        }
+      });
+    }
+
+    themeLines.push('}', '');
+    css += '\n' + themeLines.join('\n') + '\n' + faceLines.join('\n');
+    await fs.writeFile(twPath, css, 'utf-8');
+    console.log(chalk.green('\n🎉 Font generation completed successfully!'));
+
+  } else {
+    // Standard CSS logic
+    const cssFilePath = path.join(projectRoot, 'fonts.css');
+    let css = '';
+
+    for (const familyDir of familyDirs) {
+      const familyName = path.basename(familyDir);
+      const ttfPaths = globSync('**/*.ttf', { cwd: familyDir, absolute: true });
+      if (!ttfPaths.length) {
+        console.warn(chalk.yellow(`⚠ No .ttf found under ${familyName}`));
+        continue;
+      }
+      const styleToPath = {};
+      ttfPaths.forEach(fp => {
+        const base = path.basename(fp, '.ttf');
+        const [_, ...rest] = base.split('-');
+        const style = rest.join('-');
+        if (style) styleToPath[style] = fp;
+      });
+      const styles = Object.keys(styleToPath);
+      console.log(chalk.green(`✔ [${familyName}] styles: ${styles.join(', ')}`));
+
+      styles.forEach(style => {
+        const fp = styleToPath[style];
+        const url = relativeUrl(cssFilePath, fp);
+        const weight = /bold/i.test(style) ? '700' : '400';
+        const fontStyle = /italic/i.test(style) ? 'italic' : 'normal';
+        const faceFamily = `${familyName}-${style}`;
+
+        css += `@font-face {\n`;
+        css += `  font-family: "${faceFamily}";\n`;
+        css += `  src: url("${url}") format("truetype");\n`;
+        css += `  font-weight: ${weight};\n`;
+        css += `  font-style: ${fontStyle};\n`;
+        css += `}\n\n`;
+      });
+    }
+
+    await fs.writeFile(cssFilePath, css, 'utf-8');
+    console.log(chalk.green('\n🎉 Standard CSS font generation completed successfully!'));
+  }
 }
 
 main().catch(err => {
