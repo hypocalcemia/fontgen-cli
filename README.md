@@ -23,8 +23,8 @@ Get started with Font Manager for TailwindCSS in a few simple steps:
       - **Cloning the repository:**
 
         ```bash
-        git clone [https://github.com/your-username/font-manager-tailwindcss.git](https://github.com/your-username/font-manager-tailwindcss.git)
-        cd font-manager-tailwindcss
+        git clone [https://github.com/hypocalcemia/fontgen-cli.git](https://github.com/hypocalcemia/fontgen-cli.git)
+        cd fontgen-cli
         ```
 
       - **Installing from NPM registry:**
