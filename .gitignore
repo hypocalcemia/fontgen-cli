@@ -1,2 +1,46 @@
-node_modules/*
+# Logs
+logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Dependency directories
+node_modules
+
+# Optional build outputs
+dist
+build
+out
+.next
+.nuxt
+.vercel
+.netlify
+
+# System files
+.DS_Store
+Thumbs.db
+
+# Environment variables
+.env
+.env.local
+.env.development
+.env.development.local
+.env.test
+.env.test.local
+.env.production
+.env.production.local
+
+# Temporary files and directories
+tmp
+temp
+__pycache__/
+*.pyc
+*.swp
+*.swo
+.vscode/
+.idea/
+
+# Packages lock file (already included, but for completeness)
 pnpm-lock.yaml
