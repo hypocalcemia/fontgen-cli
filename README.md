@@ -36,20 +36,24 @@ To install and use the Font Manager for TailwindCSS, follow these steps:
    npm install -g pnpm
 ````
 
-2. **Clone the repository**:
+2. **Clone the repository OR Install through NPM registry!**:
 
    ```bash
    git clone https://github.com/your-username/font-manager-tailwindcss.git
    cd font-manager-tailwindcss
    ```
-
-3. **Install dependencies**:
-
-   ```bash
-   pnpm install
+   ** You can ALSO just use
+   ```
+      pnpm install fontgen-cli
    ```
 
-4. **Run the tool**:
+4. **Install dependencies**:
+
+   ```bash
+   pnpm install .
+   ```
+
+5. **Run the tool**:
 
    ```bash
    pnpm run start
