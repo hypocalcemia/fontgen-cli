@@ -1,136 +1,135 @@
-# 🚀 Font Manager for TailwindCSS
+# Fontgen CLI
 
-Effortlessly integrate your local fonts into TailwindCSS projects with this handy CLI tool built with Node.js and PNPM! Say goodbye to manual configuration and enjoy seamless font management. This tool automatically generates the required `font-family` classes, making your typography setup a breeze.
+A CLI tool for managing fonts in Tailwind CSS projects.
 
-## ✨ Features
+Fontgen scans local font files and generates the required `font-family` utilities for Tailwind automatically. This removes much of the manual setup normally required when adding custom fonts.
 
-- **⚡️ Easy to Use**: Quickly point the tool to your local fonts folder and watch it integrate them into your TailwindCSS setup.
-- **🎨 Automated Font-Class Generation**: Automatically creates TailwindCSS utility classes like `font-roboto-regular`, `font-roboto-bold`, and more.
-- **📂 Supports Multiple Font Formats**: Compatible with `.ttf`, `.otf`, `.woff`, `.woff2`, and other web-friendly font formats.
-- **⚙️ Seamless Integration**: Automatically updates your `tailwind.config.js` file, saving you valuable development time.
-- **🔓 Open Source**: Free to use and modify for both personal and commercial endeavors.
+## Features
 
-## 🛠️ Installation
+* Simple workflow: point the tool to a fonts directory and integrate them into your Tailwind project.
+* Automatic class generation such as `font-roboto-regular` and `font-roboto-bold`.
+* Supports common font formats including `.ttf`, `.otf`, `.woff`, and `.woff2`.
+* Updates `tailwind.config.js` automatically.
+* Open source and free for personal or commercial use.
 
-Get started with Font Manager for TailwindCSS in a few simple steps:
+## Installation
 
-1. **Install PNPM** (if you haven't already):
-   ```bash
-   npm install -g pnpm
+### 1. Install Bun (if needed)
 
-2.  **Clone the repository** OR **Install via NPM registry**:
+See the official documentation: [https://bun.sh/](https://bun.sh/)
 
-      - **Cloning the repository:**
+### 2. Install Fontgen CLI
 
-        ```bash
-        git clone [https://github.com/hypocalcemia/fontgen-cli.git](https://github.com/hypocalcemia/fontgen-cli.git)
-        cd fontgen-cli
-        ```
+You can either clone the repository or install it from the npm registry via Bun.
 
-      - **Installing from NPM registry:**
-
-        ```bash
-        pnpm install fontgen-cli
-        ```
-
-3.  **Install dependencies** (if you cloned the repository):
-
-    ```bash
-    pnpm install
-    ```
-
-4.  **Run the tool**:
-
-    ```bash
-    pnpm run start
-    ```
-
-    Follow the interactive prompts to specify your fonts folder and configure your TailwindCSS project.
-
-## ⚙️ Usage
-
-Managing your project fonts with the CLI tool is straightforward:
-
-1.  **Run the CLI Tool**:
-
-    ```bash
-    fontgen-cli
-    ```
-    On any issues just fix your env vars or use pnpm fontgen-cli
-
-2.  **Provide the path to your fonts folder**:
-
-    ```bash
-    Please provide the path to your fonts folder: /path/to/fonts
-    ```
-
-    *(Replace `/path/to/fonts` with the actual path to your font directory).*
-
-3.  **Specify the font file(s)**:
-
-    ```bash
-    Please specify the font(s): Roboto/Roboto-Regular.ttf Roboto/Roboto-Bold.ttf
-    ```
-
-    *(List the font files you want to integrate, separated by spaces).*
-
-4.  **Font Classes Generated**:
-    The tool will automatically generate TailwindCSS classes based on your font files, such as:
-
-      - `font-roboto-regular`
-      - `font-roboto-bold`
-
-5.  **Enjoy\!**: Your custom fonts are now integrated into your TailwindCSS project and ready for use.
-
-## 🤝 Contributing
-
-We warmly welcome contributions\! If you have suggestions for improvements or encounter any bugs, please don't hesitate to open an issue or submit a pull request.
-
-### How to Contribute:
-
-1.  Fork the repository on GitHub.
-2.  Create a new branch with a descriptive name for your feature or fix.
-3.  Write comprehensive tests for your changes (if applicable).
-4.  Submit a well-documented pull request explaining your changes.
-
-We appreciate your contributions and will review them promptly\!
-
-## 🧪 Testing
-
-To ensure the tool functions as expected, you can run the provided tests:
+**Clone the repository**
 
 ```bash
-pnpm run test
+git clone https://github.com/hypocalcemia/fontgen-cli.git
+cd fontgen-cli
+bun install
 ```
 
-This command will execute the test suite and verify the tool's functionality.
+**Install from npm registry**
 
-**For contributors**: Please include tests for any new features or bug fixes in your pull requests.
+```bash
+bun add -g fontgen-cli
+```
 
-## 🐛 Troubleshooting
+### 3. Run the tool
 
-### "Error: Font folder is empty."
+```bash
+bun run start
+```
 
-  - Double-check that the provided folder path is correct.
-  - Ensure that the specified folder contains valid font files (e.g., `.ttf`, `.woff2`).
+Follow the prompts to configure your fonts directory and Tailwind project.
 
-### "TailwindCSS classes are not being applied."
+## Usage
 
-  - Verify that TailwindCSS is correctly configured in your project.
-  - After running the tool, you might need to restart your development server for the changes in `tailwind.config.js` to take effect.
+### 1. Run the CLI
 
-### "Font styles are not being recognized."
+```bash
+fontgen-cli
+```
 
-  - Ensure that the file paths for each font style within your fonts folder are accurate.
-  - The generated TailwindCSS classes (`font-roboto-regular`, `font-roboto-bold`, etc.) are derived from the font file names. Make sure your class names in your HTML/CSS match these generated names.
+If the command fails, verify your environment or run it through Bun:
 
-## 🔗 Appendix
+```bash
+bun fontgen-cli
+```
 
-### Related Resources
+### 2. Provide a fonts directory
 
-  - [Tailwind CSS Documentation](https://tailwindcss.com/) - The official documentation for the utility-first CSS framework.
-  - [PNPM Documentation](https://pnpm.io/) - Learn more about the fast and efficient package manager.
+Example:
+
+```bash
+Please provide the path to your fonts folder: /path/to/fonts
+```
+
+### 3. Specify the font files
+
+Example:
+
+```bash
+Please specify the font(s): Roboto/Roboto-Regular.ttf Roboto/Roboto-Bold.ttf
+```
+
+List multiple files separated by spaces.
+
+### 4. Generated classes
+
+Fontgen generates Tailwind utilities based on the file names. For example:
+
+* `font-roboto-regular`
+* `font-roboto-bold`
+
+These classes can be used directly in your project.
+
+## Contributing
+
+Contributions are welcome. Open an issue or submit a pull request if you find a bug or have improvements.
+
+Workflow:
+
+1. Fork the repository.
+2. Create a branch for your change.
+3. Add tests when appropriate.
+4. Submit a pull request with a clear description of the change.
+
+## Testing
+
+Run the test suite with:
+
+```bash
+bun run test
+```
+
+Include tests for new features or bug fixes.
+
+## Troubleshooting
+
+**Error: "Font folder is empty."**
+
+* Verify the folder path is correct.
+* Ensure the folder contains valid font files such as `.ttf` or `.woff2`.
+
+**Tailwind classes are not applied**
+
+* Confirm Tailwind is correctly configured.
+* Restart the development server after `tailwind.config.js` changes.
+
+**Font styles are not recognized**
+
+* Check that font file paths are correct.
+* Generated class names are derived from the file names. Make sure the classes used in HTML or CSS match the generated names.
+
+## Appendix
+
+### Related resources
+
+* Tailwind CSS documentation: [https://tailwindcss.com](https://tailwindcss.com)
+* Bun documentation: [https://bun.sh/](https://bun.sh/)
 
 ### License
 
-This project is licensed under the **GNU General Public License v3.0**. For full details, please refer to the [LICENSE](https://www.google.com/search?q=./LICENSE) file.
+This project is licensed under the **GNU General Public License v3.0**. See the `LICENSE` file for details.
