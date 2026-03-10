@@ -44,3 +44,8 @@ __pycache__/
 
 # Packages lock file (already included, but for completeness)
 pnpm-lock.yaml
+
+bun.lock
+bun.lockb
+.gitignore
+.git
