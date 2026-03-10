@@ -116,7 +116,7 @@ Include tests for new features or bug fixes.
 **Tailwind classes are not applied**
 
 * Confirm Tailwind is correctly configured.
-* Restart the development server after `tailwind.config.js` changes.
+* Restart the development server after `base.css` (V4) changes.
 
 **Font styles are not recognized**
 
