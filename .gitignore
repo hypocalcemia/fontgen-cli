@@ -8,6 +8,10 @@ pnpm-debug.log*
 
 # Dependency directories
 node_modules
+changes
+test
+test.js
+test_out.txt
 
 # Optional build outputs
 dist
@@ -49,3 +53,4 @@ bun.lock
 bun.lockb
 .gitignore
 .git
+.gitignore

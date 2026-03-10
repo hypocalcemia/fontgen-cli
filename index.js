@@ -1,41 +1,192 @@
-import fs from 'fs-extra';
-import path from 'path';
-import inquirer from 'inquirer';
-import { sync as globSync } from 'glob';
-import chalk from 'chalk';
-import fuzzy from 'fuzzy'; // For fuzzy searching and tab completion
+#!/usr/bin/env node
+import fs from "fs-extra";
+import path from "path";
+import inquirer from "inquirer";
+import { sync as globSync } from "glob";
+import chalk from "chalk";
+import fuzzy from "fuzzy";
+import postcss from "postcss";
+import escapeStringRegexp from "escape-string-regexp";
 
 const { prompt } = inquirer;
 const projectRoot = process.cwd();
 
-// Compute relative URL from CSS file to font file
-function relativeUrl(from, to) {
-  let rel = path.relative(path.dirname(from), to).replace(/\\/g, '/');
-  return rel.startsWith('.') ? rel : `./${rel}`;
+if (projectRoot === path.parse(projectRoot).root) {
+  console.error(
+    chalk.red(
+      "❌ Cannot run fontgen-cli directly from the system root directory.",
+    ),
+  );
+  process.exit(1);
 }
 
-// Prompt for a valid fonts root with interactive directory selection
+function sanitize(str) {
+  return str.replace(/[^a-zA-Z0-9\-_.]/g, "");
+}
+
+async function ensureWithinProject(inputPath) {
+  const resolved = path.resolve(projectRoot, inputPath);
+
+  let current = resolved;
+  while (!(await fs.pathExists(current))) {
+    const parent = path.dirname(current);
+    if (parent === current) break;
+    current = parent;
+  }
+
+  try {
+    const realCurrent = await fs.realpath(current);
+    const realProjectRoot = await fs.realpath(projectRoot);
+    if (
+      realCurrent !== realProjectRoot &&
+      !realCurrent.startsWith(realProjectRoot + path.sep)
+    ) {
+      return false;
+    }
+  } catch (err) {}
+  return resolved;
+}
+
+async function isSafeToWrite(filePath) {
+  try {
+    if (await fs.pathExists(filePath)) {
+      const stats = await fs.lstat(filePath);
+      if (stats.isSymbolicLink()) return false;
+    }
+    return true;
+  } catch (err) {
+    return false;
+  }
+}
+
+function relativeUrl(from, to) {
+  let rel = path.relative(path.dirname(from), to).replace(/\\/g, "/");
+  return rel.startsWith(".") ? rel : `./${rel}`;
+}
+
+function isCssPackage(familyDir) {
+  const files = globSync("*", { cwd: familyDir, absolute: true });
+  const cssFiles = files.filter((f) => f.toLowerCase().endsWith(".css"));
+  return cssFiles.length > 0;
+}
+
+function resolveImportPath(familyDir) {
+  const normalized = familyDir.replace(/\\/g, "/");
+  const nmIndex = normalized.lastIndexOf("node_modules/");
+  if (nmIndex !== -1) {
+    return normalized.substring(nmIndex + "node_modules/".length);
+  }
+  return path.relative(projectRoot, familyDir).replace(/\\/g, "/");
+}
+
+function cleanCss(css, familyNames) {
+  const root = postcss.parse(css);
+  const escapedNames = familyNames.map((n) => escapeStringRegexp(n));
+
+  root.walkAtRules("theme", (rule) => {
+    rule.walkDecls((decl) => {
+      if (
+        escapedNames.some((name) => {
+          const pattern = new RegExp(`^--font-${name}-`);
+          return pattern.test(decl.prop);
+        })
+      ) {
+        decl.remove();
+      }
+    });
+    if (rule.nodes && rule.nodes.length === 0) {
+      rule.remove();
+    }
+  });
+
+  let inImportBlock = false;
+  const nodesToRemove = [];
+  root.each((node) => {
+    if (node.type === "comment" && node.text.trim() === "fontgen-cli imports") {
+      inImportBlock = true;
+      nodesToRemove.push(node);
+      return;
+    }
+    if (
+      node.type === "comment" &&
+      node.text.trim() === "end fontgen-cli imports"
+    ) {
+      inImportBlock = false;
+      nodesToRemove.push(node);
+      return;
+    }
+    if (inImportBlock) {
+      nodesToRemove.push(node);
+    }
+  });
+  nodesToRemove.forEach((node) => node.remove());
+
+  root.walkAtRules("font-face", (rule) => {
+    rule.walkDecls("font-family", (decl) => {
+      const val = decl.value.replace(/["']/g, "");
+      if (
+        escapedNames.some((name) => {
+          const escaped = escapeStringRegexp(name);
+          return new RegExp(`^${escaped}(-|$)`).test(val);
+        })
+      ) {
+        rule.remove();
+      }
+    });
+  });
+
+  root.walkRules((rule) => {
+    if (
+      escapedNames.some((name) => {
+        const escaped = escapeStringRegexp(name);
+        return new RegExp(`^\\.font-${escaped}(-|$)`).test(rule.selector);
+      })
+    ) {
+      rule.remove();
+    }
+  });
+
+  root.walkComments((comment) => {
+    if (comment.text.trim() === "Custom @font-face rules") {
+      comment.remove();
+      return;
+    }
+    if (
+      escapedNames.some((name) =>
+        comment.text.includes(`Custom @font-face rules for ${name}`),
+      )
+    ) {
+      comment.remove();
+    }
+  });
+
+  return root.toString();
+}
+
 async function askFontsRoot() {
   while (true) {
     const { root } = await prompt({
-      name: 'root',
-      type: 'autocomplete', // Use autocomplete for directory selection
-      message: 'Enter the path to your top-level fonts folder:',
-      default: 'src/fonts',
-      source: async (answersSoFar, input = '') => {
-        const currentDir = projectRoot;
-        const files = await fs.readdir(currentDir);
-        const directories = files.filter(file =>
-          fs.statSync(path.join(currentDir, file)).isDirectory() && !file.startsWith('.')
-        );
+      name: "root",
+      type: "autocomplete",
+      message: "Enter the path to your top-level fonts folder:",
+      default: "src/fonts",
+      source: async (answersSoFar, input = "") => {
+        const entries = await fs.readdir(projectRoot, { withFileTypes: true });
+        const directories = entries
+          .filter((e) => e.isDirectory() && !e.name.startsWith("."))
+          .map((e) => e.name);
         const fuzzyResult = fuzzy.filter(input, directories);
-        return fuzzyResult.map(el => el.original);
+        return fuzzyResult.map((el) => el.original);
       },
       validate: async (v) => {
-        if (!v) return 'Path is required.';
-        const full = path.join(projectRoot, v);
-        if (!(await fs.pathExists(full)) || !(await fs.stat(full)).isDirectory()) {
-          return `❌ Directory not found: ${full}`;
+        if (!v) return "Path is required.";
+        const resolved = await ensureWithinProject(v);
+        if (!resolved) return "❌ Path must be within the project directory.";
+        if (
+          !(await fs.pathExists(resolved)) ||
+          !(await fs.stat(resolved)).isDirectory()
+        ) {
+          return `❌ Directory not found: ${v}`;
         }
         return true;
       },
@@ -44,53 +195,64 @@ async function askFontsRoot() {
   }
 }
 
-// Let user pick one or more families with clearer options
 async function chooseFamilies(fontsRoot) {
-  const subdirectories = (await fs.readdir(fontsRoot))
-    .filter(d => fs.statSync(path.join(fontsRoot, d)).isDirectory() && !d.startsWith('.'));
+  const entries = await fs.readdir(fontsRoot, { withFileTypes: true });
+  const subdirectories = entries
+    .filter((e) => e.isDirectory() && !e.name.startsWith("."))
+    .map((e) => e.name);
 
   if (subdirectories.length === 0) {
-    console.log(chalk.yellow('⚠ No font family folders found in the specified directory.'));
+    console.log(
+      chalk.yellow(
+        "⚠ No font family folders found in the specified directory.",
+      ),
+    );
     process.exit(0);
   }
 
   const choices = [
-    { name: chalk.bold('All Font Families'), value: '__ALL__' },
+    { name: chalk.bold("All Font Families"), value: "__ALL__" },
     new inquirer.Separator(),
-    ...subdirectories.map(d => ({ name: d, value: path.join(fontsRoot, d) })),
+    ...subdirectories.map((d) => ({ name: d, value: path.join(fontsRoot, d) })),
   ];
 
   const { families } = await prompt({
-    name: 'families',
-    type: 'checkbox',
-    message: 'Select the font families to include:',
+    name: "families",
+    type: "checkbox",
+    message: "Select the font families to include:",
     choices,
-    validate: v => v.length > 0 || 'Please select at least one font family.',
+    validate: (v) => v.length > 0 || "Please select at least one font family.",
   });
 
-  if (families.includes('__ALL__')) return subdirectories.map(d => path.join(fontsRoot, d));
+  if (families.includes("__ALL__"))
+    return subdirectories.map((d) => path.join(fontsRoot, d));
   return families;
 }
 
-// Ask for Tailwind CSS file with interactive file selection
 async function askTailwindFile() {
   while (true) {
     const { tw } = await prompt({
-      name: 'tw',
-      type: 'autocomplete', // Use autocomplete for file selection
-      message: 'Enter the path to your main Tailwind CSS file:',
-      default: 'src/app.css',
-      source: async (answersSoFar, input = '') => {
-        const currentDir = projectRoot;
-        const files = await fs.readdir(currentDir);
-        const fuzzyResult = fuzzy.filter(input, files.filter(f => !f.startsWith('.')));
-        return fuzzyResult.map(el => el.original);
+      name: "tw",
+      type: "autocomplete",
+      message: "Enter the path to your main Tailwind CSS file:",
+      default: "src/app.css",
+      source: async (answersSoFar, input = "") => {
+        const entries = await fs.readdir(projectRoot, { withFileTypes: true });
+        const files = entries
+          .filter((e) => e.isFile() && !e.name.startsWith("."))
+          .map((e) => e.name);
+        const fuzzyResult = fuzzy.filter(input, files);
+        return fuzzyResult.map((el) => el.original);
       },
       validate: async (v) => {
-        if (!v) return 'File path is required.';
-        const fullPath = path.join(projectRoot, v);
-        if (!(await fs.pathExists(fullPath)) || !(await fs.stat(fullPath)).isFile()) {
-          return `❌ File not found: ${fullPath}`;
+        if (!v) return "File path is required.";
+        const resolved = await ensureWithinProject(v);
+        if (!resolved) return "❌ Path must be within the project directory.";
+        if (
+          !(await fs.pathExists(resolved)) ||
+          !(await fs.stat(resolved)).isFile()
+        ) {
+          return `❌ File not found: ${v}`;
         }
         return true;
       },
@@ -99,200 +261,375 @@ async function askTailwindFile() {
   }
 }
 
-// Ask for the output CSS file for Standard CSS
 async function askStandardCssFile() {
   const { output } = await prompt({
-    name: 'output',
-    type: 'input',
-    message: 'Enter the desired path for the generated fonts CSS file:',
-    default: 'src/fonts.css',
+    name: "output",
+    type: "input",
+    message: "Enter the desired path for the generated fonts CSS file:",
+    default: "src/fonts.css",
+    validate: async (v) => {
+      if (!v) return "File path is required.";
+      const resolved = await ensureWithinProject(v);
+      if (!resolved) return "❌ Path must be within the project directory.";
+      if (!v.toLowerCase().endsWith(".css"))
+        return "❌ File must have a .css extension.";
+      return true;
+    },
   });
   return path.join(projectRoot, output);
 }
 
-// Remove all @theme and @font-face blocks for given families (improved regex)
-function cleanCss(css, familyNames) {
-  // Remove any @theme block entirely
-  css = css.replace(/@theme\s*\{[\s\S]*?\}/g, '');
-
-  familyNames.forEach(name => {
-    // More specific regex to target our font-face blocks
-    const fontFaceRegex = new RegExp(
-      `\\/\\* Custom @font-face rules for ${name} \\*\\/[\\s\\S]*?(?=@theme|\\/\\* Custom @font-face rules for|$)`,
-      'g'
+function parseFontStyles(familyDir, familyName) {
+  const fontFiles = globSync("*", { cwd: familyDir, absolute: true });
+  const actualFontFiles = fontFiles.filter((file) => {
+    const lower = file.toLowerCase();
+    return (
+      lower.endsWith(".ttf") ||
+      lower.endsWith(".otf") ||
+      lower.endsWith(".woff") ||
+      lower.endsWith(".woff2")
     );
-    css = css.replace(fontFaceRegex, '');
-
-    // Also remove individual @font-face rules that might be left
-    const individualFontFaceRegex = new RegExp(
-      `@font-face\\s*\\{[\\s\\S]*?font-family:\\s*"${name}-[^"]+"[\\s\\S]*?\\}`,
-      'g'
-    );
-    css = css.replace(individualFontFaceRegex, '');
   });
 
-  // Also tidy up multiple blank lines
-  css = css.replace(/\n{3,}/g, '\n\n');
-  return css;
+  if (!actualFontFiles.length) return null;
+
+  const styleToFile = {};
+  actualFontFiles.forEach((fp) => {
+    const base = path.basename(fp).split(".")[0];
+    const parts = base.split("-");
+    const familyPart = parts[0].toLowerCase() === familyName ? 1 : 0;
+    const style = parts
+      .slice(familyPart)
+      .join("-")
+      .toLowerCase()
+      .replace(/_/g, "-");
+    if (style) styleToFile[style] = fp;
+  });
+
+  return styleToFile;
+}
+
+function getFontWeight(style) {
+  if (style.includes("bold")) return "700";
+  if (style.includes("medium")) return "500";
+  return "400";
+}
+
+function getFontStyle(style) {
+  return style.includes("italic") ? "italic" : "normal";
 }
 
 async function main() {
   const { cssType } = await prompt({
-    name: 'cssType',
-    type: 'list',
-    message: 'Choose the type of CSS to generate:',
-    choices: ['TailwindCSS', 'Standard CSS'],
+    name: "cssType",
+    type: "list",
+    message: "Do you want to generate TailwindCSS or Standard CSS?",
+    choices: ["TailwindCSS", "Standard CSS"],
   });
 
   const fontsRoot = await askFontsRoot();
   const familyDirs = await chooseFamilies(fontsRoot);
-  const familyNames = familyDirs.map(fd => path.basename(fd));
+  const familyNames = familyDirs.map((fd) =>
+    sanitize(path.basename(fd).toLowerCase().replace(/ /g, "-")),
+  );
 
-  if (cssType === 'TailwindCSS') {
+  if (cssType === "TailwindCSS") {
     const twPath = await askTailwindFile();
-    let css = await fs.readFile(twPath, 'utf-8');
+    let css = await fs.readFile(twPath, "utf-8");
 
-    const cleanMode = process.argv.includes('--clean');
+    const cleanMode = process.argv.includes("--clean");
     if (cleanMode) {
       css = cleanCss(css, familyNames);
-      await fs.writeFile(twPath, css, 'utf-8');
-      console.log(chalk.green(`🎉 Successfully removed font configurations for: ${familyNames.join(', ')}`));
+      if (!(await isSafeToWrite(twPath))) {
+        console.error(
+          chalk.red(
+            `\n❌ Refusing to write to symlink or unsafe path: ${twPath}`,
+          ),
+        );
+        process.exit(1);
+      }
+      await fs.writeFile(twPath, css, "utf-8");
+      console.log(
+        chalk.green(
+          `🎉 Successfully removed font configurations for: ${familyNames.join(", ")}`,
+        ),
+      );
       process.exit(0);
     }
 
-    // ADD MODE:
-    // Remove existing theme and custom font-face blocks to avoid duplicates
-    css = css
-      .replace(/@theme\s*\{[\s\S]*?\}/g, '')
-      .replace(/\/\* Custom @font-face rules \*\/[\s\S]*/g, '');
+    css = cleanCss(css, familyNames);
 
-    const themeLines = ['@theme {'];
-    const faceLines = ['/* Custom @font-face rules */'];
+    const root = postcss.parse(css);
+
+    const importNodes = [];
+    const themeDecls = [];
+    const faceRules = [];
 
     for (const familyDir of familyDirs) {
-      const familyName = path.basename(familyDir).toLowerCase().replace(/ /g, '-');
-      // Search for any file within the family directory
-      const fontFiles = globSync(`*`, { cwd: familyDir, absolute: true });
-      const actualFontFiles = fontFiles.filter(file => {
-        const lowerCaseFile = file.toLowerCase();
-        return lowerCaseFile.endsWith('.ttf') || lowerCaseFile.endsWith('.otf') || lowerCaseFile.endsWith('.woff') || lowerCaseFile.endsWith('.woff2');
-      });
+      const familyName = sanitize(
+        path.basename(familyDir).toLowerCase().replace(/ /g, "-"),
+      );
 
-      if (!actualFontFiles.length) {
-        console.warn(chalk.yellow(`⚠ No font files (ttf, otf, woff, woff2) found under ${familyName}`));
+      if (isCssPackage(familyDir)) {
+        const importPath = resolveImportPath(familyDir);
+        const importRule = postcss.atRule({
+          name: "import",
+          params: `'${sanitize(importPath) || importPath}'`,
+        });
+        importNodes.push(importRule);
+        console.log(
+          chalk.green(
+            `✔  [${familyName}] Detected CSS package → @import '${importPath}'`,
+          ),
+        );
         continue;
       }
 
-      const styleToFile = {};
-      actualFontFiles.forEach(fp => {
-        const base = path.basename(fp).split('.')[0];
-        // Attempt to extract style from filename (e.g., Roboto-BoldItalic -> BoldItalic)
-        const parts = base.split('-');
-        const familyPart = parts[0].toLowerCase() === familyName ? 1 : 0; // Skip family name if present
-        const style = parts.slice(familyPart).join('-').toLowerCase().replace(/_/g, '-');
-        if (style) styleToFile[style] = fp;
-      });
+      const styleToFile = parseFontStyles(familyDir, familyName);
+      if (!styleToFile) {
+        console.warn(
+          chalk.yellow(
+            `⚠ No font files (ttf, otf, woff, woff2) found under ${familyName}`,
+          ),
+        );
+        continue;
+      }
 
       const styles = Object.keys(styleToFile).sort();
-      console.log(chalk.green(`✔ [${familyName}] Found styles: ${styles.join(', ')}`));
+      console.log(
+        chalk.green(`✔  [${familyName}] Found styles: ${styles.join(", ")}`),
+      );
 
-      // Generate Tailwind theme extensions
-      themeLines.push(`  /* ${familyName} */`);
-      styles.forEach(style => {
-        const themeKey = `font-${familyName}-${style}`.toLowerCase().replace(/_/g, '-');
-        themeLines.push(`  --${themeKey}: "${familyName}-${style}", sans-serif;`);
+      styles.forEach((style) => {
+        const safeStyle = sanitize(style);
+        const themeKey = `--font-${familyName}-${safeStyle}`;
+        const decl = postcss.decl({
+          prop: themeKey,
+          value: `"${familyName}-${safeStyle}", sans-serif`,
+        });
+        themeDecls.push(decl);
       });
 
-      // Generate @font-face rules
-      faceLines.push(`\n/* Custom @font-face rules for ${familyName} */`);
-      styles.forEach(style => {
-        const filePath = styleToFile[style];
-        const url = relativeUrl(twPath, filePath);
-        const fontWeight = style.includes('bold') ? '700' : (style.includes('medium') ? '500' : '400');
-        const fontStyle = style.includes('italic') ? 'italic' : 'normal';
-        const fontFaceName = `${familyName}-${style}`.toLowerCase().replace(/_/g, '-');
-        const format = path.extname(filePath).slice(1); // Extract extension for format
+      const sectionComment = postcss.comment({
+        text: ` Custom @font-face rules for ${familyName} `,
+      });
+      faceRules.push(sectionComment);
 
-        faceLines.push(
-          `@font-face {`,
-          `  font-family: "${fontFaceName}";`,
-          `  src: url("${url}") format("${format}");`,
-          `  font-weight: ${fontWeight};`,
-          `  font-style: ${fontStyle};`,
-          `}`,
-          ''
+      styles.forEach((style) => {
+        const safeStyle = sanitize(style);
+        const filePath = styleToFile[style];
+        const rawUrl = relativeUrl(twPath, filePath);
+        const url = encodeURI(rawUrl).replace(/"/g, "%22").replace(/'/g, "%27");
+        const fontWeight = getFontWeight(style);
+        const fontStyle = getFontStyle(style);
+        const fontFaceName = `${familyName}-${safeStyle}`;
+        const format = path.extname(filePath).slice(1);
+
+        const faceRule = postcss.atRule({ name: "font-face" });
+        faceRule.append(
+          postcss.decl({ prop: "font-family", value: `"${fontFaceName}"` }),
         );
+        faceRule.append(
+          postcss.decl({
+            prop: "src",
+            value: `url("${url}") format("${format}")`,
+          }),
+        );
+        faceRule.append(
+          postcss.decl({ prop: "font-weight", value: fontWeight }),
+        );
+        faceRule.append(postcss.decl({ prop: "font-style", value: fontStyle }));
+        faceRules.push(faceRule);
       });
     }
 
-    themeLines.push('}', '');
-    css += '\n' + themeLines.join('\n') + '\n' + faceLines.join('\n');
-    await fs.writeFile(twPath, css, 'utf-8');
-    console.log(chalk.green('\n🎉 Tailwind CSS font integration completed successfully!'));
+    if (importNodes.length > 0) {
+      root.append(postcss.comment({ text: " fontgen-cli imports " }));
+      importNodes.forEach((node) => root.append(node));
+      root.append(postcss.comment({ text: " end fontgen-cli imports " }));
+    }
 
-  } else {
-    // Standard CSS logic
-    const cssOutputPath = await askStandardCssFile();
-    let css = '';
-
-    for (const familyDir of familyDirs) {
-      const familyName = path.basename(familyDir).toLowerCase().replace(/ /g, '-');
-      // Search for any file within the family directory
-      const fontFiles = globSync(`*`, { cwd: familyDir, absolute: true });
-      const actualFontFiles = fontFiles.filter(file => {
-        const lowerCaseFile = file.toLowerCase();
-        return lowerCaseFile.endsWith('.ttf') || lowerCaseFile.endsWith('.otf') || lowerCaseFile.endsWith('.woff') || lowerCaseFile.endsWith('.woff2');
+    if (themeDecls.length > 0) {
+      let themeRule = null;
+      root.walkAtRules("theme", (rule) => {
+        themeRule = rule;
       });
 
-      if (!actualFontFiles.length) {
-        console.warn(chalk.yellow(`⚠ No font files (ttf, otf, woff, woff2) found under ${familyName}`));
+      if (!themeRule) {
+        themeRule = postcss.atRule({ name: "theme" });
+        root.append(themeRule);
+      }
+
+      themeRule.append(postcss.comment({ text: ` fontgen-cli fonts ` }));
+      themeDecls.forEach((decl) => themeRule.append(decl));
+    }
+
+    if (faceRules.length > 0) {
+      root.append(postcss.comment({ text: " Custom @font-face rules " }));
+      faceRules.forEach((node) => root.append(node));
+    }
+
+    if (!(await isSafeToWrite(twPath))) {
+      console.error(
+        chalk.red(
+          `\n❌ Refusing to write to symlink or unsafe path: ${twPath}`,
+        ),
+      );
+      process.exit(1);
+    }
+    await fs.writeFile(twPath, root.toString(), "utf-8");
+    console.log(
+      chalk.green("\n🎉 Tailwind CSS font integration completed successfully!"),
+    );
+  } else {
+    const cssOutputPath = await askStandardCssFile();
+
+    let css = "";
+    if (await fs.pathExists(cssOutputPath)) {
+      css = await fs.readFile(cssOutputPath, "utf-8");
+    }
+
+    const cleanMode = process.argv.includes("--clean");
+    if (cleanMode) {
+      if (css) {
+        css = cleanCss(css, familyNames);
+        if (!(await isSafeToWrite(cssOutputPath))) {
+          console.error(
+            chalk.red(
+              `\n❌ Refusing to write to symlink or unsafe path: ${cssOutputPath}`,
+            ),
+          );
+          process.exit(1);
+        }
+        await fs.writeFile(cssOutputPath, css, "utf-8");
+        console.log(
+          chalk.green(
+            `🎉 Successfully removed font configurations for: ${familyNames.join(", ")}`,
+          ),
+        );
+      } else {
+        console.log(chalk.yellow(`⚠ File not found: ${cssOutputPath}`));
+      }
+      process.exit(0);
+    }
+
+    if (css) {
+      css = cleanCss(css, familyNames);
+    }
+
+    const root = css ? postcss.parse(css) : postcss.root();
+    const importNodes = [];
+
+    for (const familyDir of familyDirs) {
+      const familyName = sanitize(
+        path.basename(familyDir).toLowerCase().replace(/ /g, "-"),
+      );
+
+      if (isCssPackage(familyDir)) {
+        const importPath = resolveImportPath(familyDir);
+        const importRule = postcss.atRule({
+          name: "import",
+          params: `'${importPath}'`,
+        });
+        importNodes.push(importRule);
+        console.log(
+          chalk.green(
+            `✔  [${familyName}] Detected CSS package → @import '${importPath}'`,
+          ),
+        );
         continue;
       }
 
-      const styleToFile = {};
-      actualFontFiles.forEach(fp => {
-        const base = path.basename(fp).split('.')[0];
-        const parts = base.split('-');
-        const familyPart = parts[0].toLowerCase() === familyName ? 1 : 0;
-        const style = parts.slice(familyPart).join('-').toLowerCase().replace(/_/g, '-');
-        if (style) styleToFile[style] = fp;
-      });
+      const styleToFile = parseFontStyles(familyDir, familyName);
+      if (!styleToFile) {
+        console.warn(
+          chalk.yellow(
+            `⚠ No font files (ttf, otf, woff, woff2) found under ${familyName}`,
+          ),
+        );
+        continue;
+      }
 
       const styles = Object.keys(styleToFile).sort();
-      console.log(chalk.green(`✔ [${familyName}] Found styles: ${styles.join(', ')}`));
+      console.log(
+        chalk.green(`✔ [${familyName}] Found styles: ${styles.join(", ")}`),
+      );
 
-      styles.forEach(style => {
+      styles.forEach((style) => {
+        const safeStyle = sanitize(style);
         const filePath = styleToFile[style];
-        const url = relativeUrl(cssOutputPath, filePath);
-        const fontWeight = style.includes('bold') ? '700' : (style.includes('medium') ? '500' : '400');
-        const fontStyle = style.includes('italic') ? 'italic' : 'normal';
-        const fontFaceName = `${familyName}-${style}`.toLowerCase().replace(/_/g, '-');
+        const rawUrl = relativeUrl(cssOutputPath, filePath);
+        const url = encodeURI(rawUrl).replace(/"/g, "%22").replace(/'/g, "%27");
+        const fontWeight = getFontWeight(style);
+        const fontStyle = getFontStyle(style);
+        const fontFaceName = `${familyName}-${safeStyle}`;
         const className = `font-${fontFaceName}`;
         const format = path.extname(filePath).slice(1);
 
-        // Generate @font-face
-        css += `@font-face {\n`;
-        css += `  font-family: "${fontFaceName}";\n`;
-        css += `  src: url("${url}") format("${format}");\n`;
-        css += `  font-weight: ${fontWeight};\n`;
-        css += `  font-style: ${fontStyle};\n`;
-        css += `}\n\n`;
+        const faceRule = postcss.atRule({ name: "font-face" });
+        faceRule.append(
+          postcss.decl({ prop: "font-family", value: `"${fontFaceName}"` }),
+        );
+        faceRule.append(
+          postcss.decl({
+            prop: "src",
+            value: `url("${url}") format("${format}")`,
+          }),
+        );
+        faceRule.append(
+          postcss.decl({ prop: "font-weight", value: fontWeight }),
+        );
+        faceRule.append(postcss.decl({ prop: "font-style", value: fontStyle }));
+        root.append(faceRule);
 
-        // Generate CSS class
-        css += `.${className} {\n`;
-        css += `  font-family: "${fontFaceName}", sans-serif;\n`;
-        css += `  font-weight: ${fontWeight};\n`;
-        css += `  font-style: ${fontStyle};\n`;
-        css += `}\n\n`;
+        const classRule = postcss.rule({ selector: `.${className}` });
+        classRule.append(
+          postcss.decl({
+            prop: "font-family",
+            value: `"${fontFaceName}", sans-serif`,
+          }),
+        );
+        classRule.append(
+          postcss.decl({ prop: "font-weight", value: fontWeight }),
+        );
+        classRule.append(
+          postcss.decl({ prop: "font-style", value: fontStyle }),
+        );
+        root.append(classRule);
       });
     }
 
-    await fs.writeFile(cssOutputPath, css, 'utf-8');
-    console.log(chalk.green('\n🎉 Standard CSS font generation completed successfully!'));
+    if (importNodes.length > 0) {
+      const importBlock = postcss.root();
+      importBlock.append(postcss.comment({ text: " fontgen-cli imports " }));
+      importNodes.forEach((node) => importBlock.append(node));
+      importBlock.append(
+        postcss.comment({ text: " end fontgen-cli imports " }),
+      );
+      root.prepend(importBlock);
+    }
+
+    if (!(await isSafeToWrite(cssOutputPath))) {
+      console.error(
+        chalk.red(
+          `\n❌ Refusing to write to symlink or unsafe path: ${cssOutputPath}`,
+        ),
+      );
+      process.exit(1);
+    }
+    await fs.writeFile(cssOutputPath, root.toString(), "utf-8");
+    console.log(
+      chalk.green("\nStandard CSS font generation completed successfully!"),
+    );
   }
 }
 
-main().catch(err => {
-  console.error(chalk.red('🔥 An error occurred:'), chalk.red(err.message || err));
+main().catch((err) => {
+  if (err.message === "User force closed the prompt with SIGINT") {
+    return;
+  }
+  console.error(
+    chalk.red("An error occurred. Please check your inputs and try again."),
+  );
   process.exit(1);
 });
