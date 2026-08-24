@@ -25,7 +25,7 @@ function sanitize(str) {
 }
 
 function toCssQuotedString(value) {
-  return `'${value.replace(/\\/g, "/").replace(/'/g, "\\'")}'`;
+  return JSON.stringify(value.replace(/\\/g, "/"));
 }
 
 async function ensureWithinProject(inputPath) {

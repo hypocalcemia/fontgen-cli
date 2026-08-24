@@ -72,5 +72,5 @@ test("cleanCss removes prior generated imports and declarations", () => {
 });
 
 test("toCssQuotedString preserves package-style import paths", () => {
-  assert.equal(toCssQuotedString("@fontsource/inter"), "'@fontsource/inter'");
+  assert.equal(toCssQuotedString("@fontsource/inter"), "\"@fontsource/inter\"");
 });
