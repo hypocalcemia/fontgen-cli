@@ -10,6 +10,42 @@ import { pathToFileURL } from "url";
 
 const { prompt } = inquirer;
 const projectRoot = process.cwd();
+const FONT_EXTENSIONS = new Set([".ttf", ".otf", ".woff", ".woff2"]);
+const FONT_WEIGHT_RULES = [
+  { sequences: [["thin"], ["hairline"]], weight: "100" },
+  {
+    sequences: [
+      ["extra", "light"],
+      ["ultra", "light"],
+      ["extralight"],
+      ["ultralight"],
+    ],
+    weight: "200",
+  },
+  { sequences: [["light"]], weight: "300" },
+  { sequences: [["regular"], ["normal"], ["book"], ["roman"]], weight: "400" },
+  { sequences: [["medium"]], weight: "500" },
+  {
+    sequences: [["semi", "bold"], ["demi", "bold"], ["semibold"], ["demibold"]],
+    weight: "600",
+  },
+  {
+    sequences: [["extra", "bold"], ["ultra", "bold"], ["extrabold"], ["ultrabold"]],
+    weight: "800",
+  },
+  { sequences: [["bold"]], weight: "700" },
+  {
+    sequences: [
+      ["black"],
+      ["heavy"],
+      ["extra", "black"],
+      ["ultra", "black"],
+      ["extrablack"],
+      ["ultrablack"],
+    ],
+    weight: "900",
+  },
+];
 
 if (projectRoot === path.parse(projectRoot).root) {
   console.error(
@@ -24,8 +60,38 @@ function sanitize(str) {
   return str.replace(/[^a-zA-Z0-9\-_.]/g, "");
 }
 
+function normalizeFontIdentifier(value) {
+  return value
+    .replace(/([a-z0-9])([A-Z])/g, "$1-$2")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .replace(/-+/g, "-");
+}
+
+function getFontTokens(value) {
+  const normalized = normalizeFontIdentifier(value);
+  return normalized ? normalized.split("-") : [];
+}
+
+function hasTokenSequence(tokens, sequence) {
+  for (let index = 0; index <= tokens.length - sequence.length; index += 1) {
+    if (sequence.every((token, offset) => tokens[index + offset] === token)) {
+      return true;
+    }
+  }
+  return false;
+}
+
 function toCssQuotedString(value) {
   return JSON.stringify(value.replace(/\\/g, "/"));
+}
+
+function createImportRule(importPath) {
+  return postcss.atRule({
+    name: "import",
+    params: toCssQuotedString(importPath),
+  });
 }
 
 async function ensureWithinProject(inputPath) {
@@ -167,6 +233,10 @@ function cleanCss(css, familyNames) {
   return root.toString();
 }
 
+function getFamilyName(familyDir) {
+  return normalizeFontIdentifier(path.basename(familyDir));
+}
+
 async function askFontsRoot() {
   while (true) {
     const { root } = await prompt({
@@ -270,52 +340,214 @@ async function askStandardCssFile() {
 function parseFontStyles(familyDir, familyName) {
   const fontFiles = globSync("*", { cwd: familyDir, absolute: true });
   const actualFontFiles = fontFiles.filter((file) => {
-    const lower = file.toLowerCase();
-    return (
-      lower.endsWith(".ttf") ||
-      lower.endsWith(".otf") ||
-      lower.endsWith(".woff") ||
-      lower.endsWith(".woff2")
-    );
+    return FONT_EXTENSIONS.has(path.extname(file).toLowerCase());
   });
 
   if (!actualFontFiles.length) return null;
 
   const styleToFile = {};
+  const normalizedFamilyName = normalizeFontIdentifier(familyName);
   actualFontFiles.forEach((fp) => {
     const base = path.basename(fp, path.extname(fp));
-    const normalizedBase = base
-      .toLowerCase()
-      .replace(/[\s_]+/g, "-")
-      .replace(/-+/g, "-");
-    const style = normalizedBase.startsWith(`${familyName}-`)
-      ? normalizedBase.slice(familyName.length + 1)
-      : normalizedBase === familyName
+    const normalizedBase = normalizeFontIdentifier(base);
+    const style = normalizedBase.startsWith(`${normalizedFamilyName}-`)
+      ? normalizedBase.slice(normalizedFamilyName.length + 1)
+      : normalizedBase === normalizedFamilyName
         ? "regular"
         : normalizedBase;
-    if (style) styleToFile[style] = fp;
+    if (!style) return;
+    if (styleToFile[style]) {
+      throw new Error(
+        `Duplicate normalized style "${style}" for family "${normalizedFamilyName}" from ${path.basename(styleToFile[style])} and ${path.basename(fp)}`,
+      );
+    }
+    styleToFile[style] = fp;
   });
 
   return styleToFile;
 }
 
 function getFontWeight(style) {
-  if (style.includes("thin")) return "100";
-  if (style.includes("extralight") || style.includes("ultralight")) return "200";
-  if (style.includes("light")) return "300";
-  if (style.includes("regular")) return "400";
-  if (style.includes("semibold") || style.includes("demibold")) return "600";
-  if (style.includes("medium")) return "500";
-  if (style.includes("extrabold") || style.includes("ultrabold")) return "800";
-  if (style.includes("bold")) return "700";
-  if (style.includes("black") || style.includes("heavy")) return "900";
+  const tokens = getFontTokens(style);
+  for (const rule of FONT_WEIGHT_RULES) {
+    if (rule.sequences.some((sequence) => hasTokenSequence(tokens, sequence))) {
+      return rule.weight;
+    }
+  }
   return "400";
 }
 
 function getFontStyle(style) {
-  return style.includes("italic") || style.includes("oblique")
-    ? "italic"
-    : "normal";
+  const tokens = getFontTokens(style);
+  if (hasTokenSequence(tokens, ["oblique"])) return "oblique";
+  if (hasTokenSequence(tokens, ["italic"])) return "italic";
+  return "normal";
+}
+
+function buildStandardCss(existingCss, familyDirs, cssOutputPath, log = () => {}) {
+  const root = existingCss ? postcss.parse(existingCss) : postcss.root();
+  const importNodes = [];
+
+  for (const familyDir of familyDirs) {
+    const familyName = getFamilyName(familyDir);
+
+    if (isCssPackage(familyDir)) {
+      const importPath = resolveImportPath(familyDir);
+      importNodes.push(createImportRule(importPath));
+      log(`✔  [${familyName}] Detected CSS package → @import '${importPath}'`);
+      continue;
+    }
+
+    const styleToFile = parseFontStyles(familyDir, familyName);
+    if (!styleToFile) {
+      log(`⚠ No font files (ttf, otf, woff, woff2) found under ${familyName}`);
+      continue;
+    }
+
+    const styles = Object.keys(styleToFile).sort();
+    log(`✔ [${familyName}] Found styles: ${styles.join(", ")}`);
+
+    styles.forEach((style) => {
+      const filePath = styleToFile[style];
+      const rawUrl = relativeUrl(cssOutputPath, filePath);
+      const url = encodeURI(rawUrl).replace(/"/g, "%22").replace(/'/g, "%27");
+      const fontWeight = getFontWeight(style);
+      const fontStyle = getFontStyle(style);
+      const fontFaceName = `${familyName}-${style}`;
+      const className = `font-${fontFaceName}`;
+      const format = path.extname(filePath).slice(1);
+
+      const faceRule = postcss.atRule({ name: "font-face" });
+      faceRule.append(
+        postcss.decl({ prop: "font-family", value: `"${fontFaceName}"` }),
+      );
+      faceRule.append(
+        postcss.decl({
+          prop: "src",
+          value: `url("${url}") format("${format}")`,
+        }),
+      );
+      faceRule.append(postcss.decl({ prop: "font-weight", value: fontWeight }));
+      faceRule.append(postcss.decl({ prop: "font-style", value: fontStyle }));
+      root.append(faceRule);
+
+      const classRule = postcss.rule({ selector: `.${className}` });
+      classRule.append(
+        postcss.decl({
+          prop: "font-family",
+          value: `"${fontFaceName}", sans-serif`,
+        }),
+      );
+      classRule.append(postcss.decl({ prop: "font-weight", value: fontWeight }));
+      classRule.append(postcss.decl({ prop: "font-style", value: fontStyle }));
+      root.append(classRule);
+    });
+  }
+
+  if (importNodes.length > 0) {
+    const importBlock = postcss.root();
+    importBlock.append(postcss.comment({ text: " fontgen-cli imports " }));
+    importNodes.forEach((node) => importBlock.append(node));
+    importBlock.append(postcss.comment({ text: " end fontgen-cli imports " }));
+    root.prepend(importBlock);
+  }
+
+  return root.toString();
+}
+
+function buildTailwindCss(existingCss, familyDirs, twPath, log = () => {}) {
+  const root = postcss.parse(existingCss);
+  const importNodes = [];
+  const themeDecls = [];
+  const faceRules = [];
+
+  for (const familyDir of familyDirs) {
+    const familyName = getFamilyName(familyDir);
+
+    if (isCssPackage(familyDir)) {
+      const importPath = resolveImportPath(familyDir);
+      importNodes.push(createImportRule(importPath));
+      log(`✔  [${familyName}] Detected CSS package → @import '${importPath}'`);
+      continue;
+    }
+
+    const styleToFile = parseFontStyles(familyDir, familyName);
+    if (!styleToFile) {
+      log(`⚠ No font files (ttf, otf, woff, woff2) found under ${familyName}`);
+      continue;
+    }
+
+    const styles = Object.keys(styleToFile).sort();
+    log(`✔  [${familyName}] Found styles: ${styles.join(", ")}`);
+
+    styles.forEach((style) => {
+      const themeKey = `--font-${familyName}-${style}`;
+      themeDecls.push(
+        postcss.decl({
+          prop: themeKey,
+          value: `"${familyName}-${style}", sans-serif`,
+        }),
+      );
+    });
+
+    faceRules.push(
+      postcss.comment({
+        text: ` Custom @font-face rules for ${familyName} `,
+      }),
+    );
+
+    styles.forEach((style) => {
+      const filePath = styleToFile[style];
+      const rawUrl = relativeUrl(twPath, filePath);
+      const url = encodeURI(rawUrl).replace(/"/g, "%22").replace(/'/g, "%27");
+      const fontWeight = getFontWeight(style);
+      const fontStyle = getFontStyle(style);
+      const fontFaceName = `${familyName}-${style}`;
+      const format = path.extname(filePath).slice(1);
+
+      const faceRule = postcss.atRule({ name: "font-face" });
+      faceRule.append(
+        postcss.decl({ prop: "font-family", value: `"${fontFaceName}"` }),
+      );
+      faceRule.append(
+        postcss.decl({
+          prop: "src",
+          value: `url("${url}") format("${format}")`,
+        }),
+      );
+      faceRule.append(postcss.decl({ prop: "font-weight", value: fontWeight }));
+      faceRule.append(postcss.decl({ prop: "font-style", value: fontStyle }));
+      faceRules.push(faceRule);
+    });
+  }
+
+  if (importNodes.length > 0) {
+    root.append(postcss.comment({ text: " fontgen-cli imports " }));
+    importNodes.forEach((node) => root.append(node));
+    root.append(postcss.comment({ text: " end fontgen-cli imports " }));
+  }
+
+  if (themeDecls.length > 0) {
+    let themeRule = null;
+    root.walkAtRules("theme", (rule) => {
+      themeRule = rule;
+    });
+
+    if (!themeRule) {
+      themeRule = postcss.atRule({ name: "theme" });
+      root.append(themeRule);
+    }
+
+    themeRule.append(postcss.comment({ text: " fontgen-cli fonts " }));
+    themeDecls.forEach((decl) => themeRule.append(decl));
+  }
+
+  if (faceRules.length > 0) {
+    root.append(postcss.comment({ text: " Custom @font-face rules " }));
+    faceRules.forEach((node) => root.append(node));
+  }
+
+  return root.toString();
 }
 
 async function main() {
@@ -328,9 +560,7 @@ async function main() {
 
   const fontsRoot = await askFontsRoot();
   const familyDirs = await chooseFamilies(fontsRoot);
-  const familyNames = familyDirs.map((fd) =>
-    sanitize(path.basename(fd).toLowerCase().replace(/ /g, "-")),
-  );
+  const familyNames = familyDirs.map((fd) => getFamilyName(fd));
 
   if (cssType === "TailwindCSS") {
     const twPath = await askTailwindFile();
@@ -356,117 +586,13 @@ async function main() {
       process.exit(0);
     }
 
-    css = cleanCss(css, familyNames);
-
-    const root = postcss.parse(css);
-
-    const importNodes = [];
-    const themeDecls = [];
-    const faceRules = [];
-
-    for (const familyDir of familyDirs) {
-      const familyName = sanitize(
-        path.basename(familyDir).toLowerCase().replace(/ /g, "-"),
-      );
-
-      if (isCssPackage(familyDir)) {
-        const importPath = resolveImportPath(familyDir);
-        const importRule = postcss.atRule({
-          name: "import",
-          params: toCssQuotedString(importPath),
-        });
-        importNodes.push(importRule);
-        console.log(
-          chalk.green(
-            `✔  [${familyName}] Detected CSS package → @import '${importPath}'`,
-          ),
-        );
-        continue;
+    css = buildTailwindCss(cleanCss(css, familyNames), familyDirs, twPath, (msg) => {
+      if (msg.startsWith("⚠")) {
+        console.warn(chalk.yellow(msg));
+        return;
       }
-
-      const styleToFile = parseFontStyles(familyDir, familyName);
-      if (!styleToFile) {
-        console.warn(
-          chalk.yellow(
-            `⚠ No font files (ttf, otf, woff, woff2) found under ${familyName}`,
-          ),
-        );
-        continue;
-      }
-
-      const styles = Object.keys(styleToFile).sort();
-      console.log(
-        chalk.green(`✔  [${familyName}] Found styles: ${styles.join(", ")}`),
-      );
-
-      styles.forEach((style) => {
-        const safeStyle = sanitize(style);
-        const themeKey = `--font-${familyName}-${safeStyle}`;
-        const decl = postcss.decl({
-          prop: themeKey,
-          value: `"${familyName}-${safeStyle}", sans-serif`,
-        });
-        themeDecls.push(decl);
-      });
-
-      const sectionComment = postcss.comment({
-        text: ` Custom @font-face rules for ${familyName} `,
-      });
-      faceRules.push(sectionComment);
-
-      styles.forEach((style) => {
-        const safeStyle = sanitize(style);
-        const filePath = styleToFile[style];
-        const rawUrl = relativeUrl(twPath, filePath);
-        const url = encodeURI(rawUrl).replace(/"/g, "%22").replace(/'/g, "%27");
-        const fontWeight = getFontWeight(style);
-        const fontStyle = getFontStyle(style);
-        const fontFaceName = `${familyName}-${safeStyle}`;
-        const format = path.extname(filePath).slice(1);
-
-        const faceRule = postcss.atRule({ name: "font-face" });
-        faceRule.append(
-          postcss.decl({ prop: "font-family", value: `"${fontFaceName}"` }),
-        );
-        faceRule.append(
-          postcss.decl({
-            prop: "src",
-            value: `url("${url}") format("${format}")`,
-          }),
-        );
-        faceRule.append(
-          postcss.decl({ prop: "font-weight", value: fontWeight }),
-        );
-        faceRule.append(postcss.decl({ prop: "font-style", value: fontStyle }));
-        faceRules.push(faceRule);
-      });
-    }
-
-    if (importNodes.length > 0) {
-      root.append(postcss.comment({ text: " fontgen-cli imports " }));
-      importNodes.forEach((node) => root.append(node));
-      root.append(postcss.comment({ text: " end fontgen-cli imports " }));
-    }
-
-    if (themeDecls.length > 0) {
-      let themeRule = null;
-      root.walkAtRules("theme", (rule) => {
-        themeRule = rule;
-      });
-
-      if (!themeRule) {
-        themeRule = postcss.atRule({ name: "theme" });
-        root.append(themeRule);
-      }
-
-      themeRule.append(postcss.comment({ text: ` fontgen-cli fonts ` }));
-      themeDecls.forEach((decl) => themeRule.append(decl));
-    }
-
-    if (faceRules.length > 0) {
-      root.append(postcss.comment({ text: " Custom @font-face rules " }));
-      faceRules.forEach((node) => root.append(node));
-    }
+      console.log(chalk.green(msg));
+    });
 
     if (!(await isSafeToWrite(twPath))) {
       console.error(
@@ -476,7 +602,7 @@ async function main() {
       );
       process.exit(1);
     }
-    await fs.writeFile(twPath, root.toString(), "utf-8");
+    await fs.writeFile(twPath, css, "utf-8");
     console.log(
       chalk.green("\n🎉 Tailwind CSS font integration completed successfully!"),
     );
@@ -512,101 +638,18 @@ async function main() {
       process.exit(0);
     }
 
-    if (css) {
-      css = cleanCss(css, familyNames);
-    }
-
-    const root = css ? postcss.parse(css) : postcss.root();
-    const importNodes = [];
-
-    for (const familyDir of familyDirs) {
-      const familyName = sanitize(
-        path.basename(familyDir).toLowerCase().replace(/ /g, "-"),
-      );
-
-      if (isCssPackage(familyDir)) {
-        const importPath = resolveImportPath(familyDir);
-        const importRule = postcss.atRule({
-          name: "import",
-          params: toCssQuotedString(importPath),
-        });
-        importNodes.push(importRule);
-        console.log(
-          chalk.green(
-            `✔  [${familyName}] Detected CSS package → @import '${importPath}'`,
-          ),
-        );
-        continue;
-      }
-
-      const styleToFile = parseFontStyles(familyDir, familyName);
-      if (!styleToFile) {
-        console.warn(
-          chalk.yellow(
-            `⚠ No font files (ttf, otf, woff, woff2) found under ${familyName}`,
-          ),
-        );
-        continue;
-      }
-
-      const styles = Object.keys(styleToFile).sort();
-      console.log(
-        chalk.green(`✔ [${familyName}] Found styles: ${styles.join(", ")}`),
-      );
-
-      styles.forEach((style) => {
-        const safeStyle = sanitize(style);
-        const filePath = styleToFile[style];
-        const rawUrl = relativeUrl(cssOutputPath, filePath);
-        const url = encodeURI(rawUrl).replace(/"/g, "%22").replace(/'/g, "%27");
-        const fontWeight = getFontWeight(style);
-        const fontStyle = getFontStyle(style);
-        const fontFaceName = `${familyName}-${safeStyle}`;
-        const className = `font-${fontFaceName}`;
-        const format = path.extname(filePath).slice(1);
-
-        const faceRule = postcss.atRule({ name: "font-face" });
-        faceRule.append(
-          postcss.decl({ prop: "font-family", value: `"${fontFaceName}"` }),
-        );
-        faceRule.append(
-          postcss.decl({
-            prop: "src",
-            value: `url("${url}") format("${format}")`,
-          }),
-        );
-        faceRule.append(
-          postcss.decl({ prop: "font-weight", value: fontWeight }),
-        );
-        faceRule.append(postcss.decl({ prop: "font-style", value: fontStyle }));
-        root.append(faceRule);
-
-        const classRule = postcss.rule({ selector: `.${className}` });
-        classRule.append(
-          postcss.decl({
-            prop: "font-family",
-            value: `"${fontFaceName}", sans-serif`,
-          }),
-        );
-        classRule.append(
-          postcss.decl({ prop: "font-weight", value: fontWeight }),
-        );
-        classRule.append(
-          postcss.decl({ prop: "font-style", value: fontStyle }),
-        );
-        root.append(classRule);
-      });
-    }
-
-    if (importNodes.length > 0) {
-      const importBlock = postcss.root();
-      importBlock.append(postcss.comment({ text: " fontgen-cli imports " }));
-      importNodes.forEach((node) => importBlock.append(node));
-      importBlock.append(
-        postcss.comment({ text: " end fontgen-cli imports " }),
-      );
-      root.prepend(importBlock);
-    }
+    css = buildStandardCss(
+      css ? cleanCss(css, familyNames) : "",
+      familyDirs,
+      cssOutputPath,
+      (msg) => {
+        if (msg.startsWith("⚠")) {
+          console.warn(chalk.yellow(msg));
+          return;
+        }
+        console.log(chalk.green(msg));
+      },
+    );
 
     if (!(await isSafeToWrite(cssOutputPath))) {
       console.error(
@@ -616,7 +659,7 @@ async function main() {
       );
       process.exit(1);
     }
-    await fs.writeFile(cssOutputPath, root.toString(), "utf-8");
+    await fs.writeFile(cssOutputPath, css, "utf-8");
     console.log(
       chalk.green("\nStandard CSS font generation completed successfully!"),
     );
@@ -624,10 +667,17 @@ async function main() {
 }
 
 export {
+ buildStandardCss,
+ buildTailwindCss,
  cleanCss,
+ createImportRule,
  ensureWithinProject,
+ getFamilyName,
  getFontStyle,
+ getFontTokens,
  getFontWeight,
+ hasTokenSequence,
+ normalizeFontIdentifier,
  parseFontStyles,
  relativeUrl,
  sanitize,
