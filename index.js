@@ -4,7 +4,6 @@ import path from "path";
 import inquirer from "inquirer";
 import { sync as globSync } from "glob";
 import chalk from "chalk";
-import fuzzy from "fuzzy";
 import postcss from "postcss";
 import escapeStringRegexp from "escape-string-regexp";
 import { pathToFileURL } from "url";
@@ -305,11 +304,11 @@ function getFontWeight(style) {
   if (style.includes("extralight") || style.includes("ultralight")) return "200";
   if (style.includes("light")) return "300";
   if (style.includes("regular")) return "400";
-  if (style.includes("bold")) return "700";
   if (style.includes("semibold") || style.includes("demibold")) return "600";
-  if (style.includes("extrabold") || style.includes("ultrabold")) return "800";
-  if (style.includes("black") || style.includes("heavy")) return "900";
   if (style.includes("medium")) return "500";
+  if (style.includes("extrabold") || style.includes("ultrabold")) return "800";
+  if (style.includes("bold")) return "700";
+  if (style.includes("black") || style.includes("heavy")) return "900";
   return "400";
 }
 

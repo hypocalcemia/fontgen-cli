@@ -14,9 +14,9 @@ Fontgen scans local font files and generates the required `font-family` utilitie
 
 ## Installation
 
-### 1. Install Bun (if needed)
+### 1. Install Node.js (if needed)
 
-See the official documentation: [https://bun.sh/](https://bun.sh/)
+See the official documentation: [https://nodejs.org/](https://nodejs.org/)
 
 ### 2. Install Fontgen CLI
 
@@ -58,25 +58,29 @@ If the command fails, verify your environment or run it through Node:
 node ./index.js
 ```
 
-### 2. Provide a fonts directory
+### 2. Choose an output mode
+
+Select either `TailwindCSS` to update your Tailwind CSS entry file or `Standard CSS` to generate a standalone stylesheet.
+
+### 3. Provide a fonts directory
 
 Example:
 
 ```bash
-Please provide the path to your fonts folder: /path/to/fonts
+Enter the path to your top-level fonts folder: /path/to/fonts
 ```
 
-### 3. Specify the font files
+### 4. Select one or more font families
 
 Example:
 
 ```bash
-Please specify the font(s): Roboto/Roboto-Regular.ttf Roboto/Roboto-Bold.ttf
+Select the font families to include: Roboto
 ```
 
-List multiple files separated by spaces.
+You can also choose **All Font Families**.
 
-### 4. Generated classes
+### 5. Generated classes
 
 Fontgen generates Tailwind utilities based on the file names. For example:
 
@@ -108,10 +112,11 @@ Include tests for new features or bug fixes.
 
 ## Troubleshooting
 
-**Error: "Font folder is empty."**
+**No font family folders found in the specified directory**
 
 * Verify the folder path is correct.
-* Ensure the folder contains valid font files such as `.ttf` or `.woff2`.
+* Ensure the folder contains subdirectories for each font family.
+* Ensure those subdirectories contain valid font files such as `.ttf` or `.woff2`.
 
 **Tailwind classes are not applied**
 
@@ -128,7 +133,7 @@ Include tests for new features or bug fixes.
 ### Related resources
 
 * Tailwind CSS documentation: [https://tailwindcss.com](https://tailwindcss.com)
-* Bun documentation: [https://bun.sh/](https://bun.sh/)
+* Node.js documentation: [https://nodejs.org/](https://nodejs.org/)
 
 ### License
 
