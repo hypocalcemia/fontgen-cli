@@ -9,7 +9,7 @@ Fontgen scans local font files and generates the required `font-family` utilitie
 * Simple workflow: point the tool to a fonts directory and integrate them into your Tailwind project.
 * Automatic class generation such as `font-roboto-regular` and `font-roboto-bold`.
 * Supports common font formats including `.ttf`, `.otf`, `.woff`, and `.woff2`.
-* Updates `tailwind.config.js` automatically.
+* Updates your Tailwind CSS entry file or writes a standalone CSS file automatically.
 * Open source and free for personal or commercial use.
 
 ## Installation
@@ -20,26 +20,26 @@ See the official documentation: [https://bun.sh/](https://bun.sh/)
 
 ### 2. Install Fontgen CLI
 
-You can either clone the repository or install it from the npm registry via Bun.
+You can either clone the repository or install it from the npm registry.
 
 **Clone the repository**
 
 ```bash
 git clone https://github.com/hypocalcemia/fontgen-cli.git
 cd fontgen-cli
-bun install
+npm install
 ```
 
 **Install from npm registry**
 
 ```bash
-bun add -g fontgen-cli
+npm install -g fontgen-cli
 ```
 
 ### 3. Run the tool
 
 ```bash
-bun run start
+npm start
 ```
 
 Follow the prompts to configure your fonts directory and Tailwind project.
@@ -52,10 +52,10 @@ Follow the prompts to configure your fonts directory and Tailwind project.
 fontgen-cli
 ```
 
-If the command fails, verify your environment or run it through Bun:
+If the command fails, verify your environment or run it through Node:
 
 ```bash
-bun fontgen-cli
+node ./index.js
 ```
 
 ### 2. Provide a fonts directory
@@ -101,7 +101,7 @@ Workflow:
 Run the test suite with:
 
 ```bash
-bun run test
+npm test
 ```
 
 Include tests for new features or bug fixes.

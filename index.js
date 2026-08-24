@@ -7,6 +7,7 @@ import chalk from "chalk";
 import fuzzy from "fuzzy";
 import postcss from "postcss";
 import escapeStringRegexp from "escape-string-regexp";
+import { pathToFileURL } from "url";
 
 const { prompt } = inquirer;
 const projectRoot = process.cwd();
@@ -22,6 +23,10 @@ if (projectRoot === path.parse(projectRoot).root) {
 
 function sanitize(str) {
   return str.replace(/[^a-zA-Z0-9\-_.]/g, "");
+}
+
+function toCssQuotedString(value) {
+  return `'${value.replace(/\\/g, "/").replace(/'/g, "\\'")}'`;
 }
 
 async function ensureWithinProject(inputPath) {
@@ -167,17 +172,9 @@ async function askFontsRoot() {
   while (true) {
     const { root } = await prompt({
       name: "root",
-      type: "autocomplete",
+      type: "input",
       message: "Enter the path to your top-level fonts folder:",
       default: "src/fonts",
-      source: async (answersSoFar, input = "") => {
-        const entries = await fs.readdir(projectRoot, { withFileTypes: true });
-        const directories = entries
-          .filter((e) => e.isDirectory() && !e.name.startsWith("."))
-          .map((e) => e.name);
-        const fuzzyResult = fuzzy.filter(input, directories);
-        return fuzzyResult.map((el) => el.original);
-      },
       validate: async (v) => {
         if (!v) return "Path is required.";
         const resolved = await ensureWithinProject(v);
@@ -191,7 +188,7 @@ async function askFontsRoot() {
         return true;
       },
     });
-    return path.join(projectRoot, root);
+    return await ensureWithinProject(root);
   }
 }
 
@@ -233,17 +230,9 @@ async function askTailwindFile() {
   while (true) {
     const { tw } = await prompt({
       name: "tw",
-      type: "autocomplete",
+      type: "input",
       message: "Enter the path to your main Tailwind CSS file:",
       default: "src/app.css",
-      source: async (answersSoFar, input = "") => {
-        const entries = await fs.readdir(projectRoot, { withFileTypes: true });
-        const files = entries
-          .filter((e) => e.isFile() && !e.name.startsWith("."))
-          .map((e) => e.name);
-        const fuzzyResult = fuzzy.filter(input, files);
-        return fuzzyResult.map((el) => el.original);
-      },
       validate: async (v) => {
         if (!v) return "File path is required.";
         const resolved = await ensureWithinProject(v);
@@ -257,7 +246,7 @@ async function askTailwindFile() {
         return true;
       },
     });
-    return path.join(projectRoot, tw);
+    return await ensureWithinProject(tw);
   }
 }
 
@@ -276,7 +265,7 @@ async function askStandardCssFile() {
       return true;
     },
   });
-  return path.join(projectRoot, output);
+  return await ensureWithinProject(output);
 }
 
 function parseFontStyles(familyDir, familyName) {
@@ -295,14 +284,16 @@ function parseFontStyles(familyDir, familyName) {
 
   const styleToFile = {};
   actualFontFiles.forEach((fp) => {
-    const base = path.basename(fp).split(".")[0];
-    const parts = base.split("-");
-    const familyPart = parts[0].toLowerCase() === familyName ? 1 : 0;
-    const style = parts
-      .slice(familyPart)
-      .join("-")
+    const base = path.basename(fp, path.extname(fp));
+    const normalizedBase = base
       .toLowerCase()
-      .replace(/_/g, "-");
+      .replace(/[\s_]+/g, "-")
+      .replace(/-+/g, "-");
+    const style = normalizedBase.startsWith(`${familyName}-`)
+      ? normalizedBase.slice(familyName.length + 1)
+      : normalizedBase === familyName
+        ? "regular"
+        : normalizedBase;
     if (style) styleToFile[style] = fp;
   });
 
@@ -310,13 +301,22 @@ function parseFontStyles(familyDir, familyName) {
 }
 
 function getFontWeight(style) {
+  if (style.includes("thin")) return "100";
+  if (style.includes("extralight") || style.includes("ultralight")) return "200";
+  if (style.includes("light")) return "300";
+  if (style.includes("regular")) return "400";
   if (style.includes("bold")) return "700";
+  if (style.includes("semibold") || style.includes("demibold")) return "600";
+  if (style.includes("extrabold") || style.includes("ultrabold")) return "800";
+  if (style.includes("black") || style.includes("heavy")) return "900";
   if (style.includes("medium")) return "500";
   return "400";
 }
 
 function getFontStyle(style) {
-  return style.includes("italic") ? "italic" : "normal";
+  return style.includes("italic") || style.includes("oblique")
+    ? "italic"
+    : "normal";
 }
 
 async function main() {
@@ -374,7 +374,7 @@ async function main() {
         const importPath = resolveImportPath(familyDir);
         const importRule = postcss.atRule({
           name: "import",
-          params: `'${sanitize(importPath) || importPath}'`,
+          params: toCssQuotedString(importPath),
         });
         importNodes.push(importRule);
         console.log(
@@ -529,7 +529,7 @@ async function main() {
         const importPath = resolveImportPath(familyDir);
         const importRule = postcss.atRule({
           name: "import",
-          params: `'${importPath}'`,
+          params: toCssQuotedString(importPath),
         });
         importNodes.push(importRule);
         console.log(
@@ -624,12 +624,27 @@ async function main() {
   }
 }
 
-main().catch((err) => {
-  if (err.message === "User force closed the prompt with SIGINT") {
-    return;
-  }
-  console.error(
-    chalk.red("An error occurred. Please check your inputs and try again."),
-  );
-  process.exit(1);
-});
+export {
+ cleanCss,
+ ensureWithinProject,
+ getFontStyle,
+ getFontWeight,
+ parseFontStyles,
+ relativeUrl,
+ sanitize,
+ toCssQuotedString,
+};
+
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+ main().catch((err) => {
+   if (err.message === "User force closed the prompt with SIGINT") {
+     return;
+   }
+   console.error(
+     chalk.red(
+       `An error occurred. Please check your inputs and try again.\n${err.message}`,
+     ),
+   );
+   process.exit(1);
+ });
+}
